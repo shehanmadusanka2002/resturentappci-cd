@@ -1,0 +1,87 @@
+name: CI — PHP Syntax & Dependency Check
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
+
+jobs:
+  # ─────────────────────────────────────────
+  # Job 1: PHP Syntax Check
+  # ─────────────────────────────────────────
+  syntax-check:
+    name: PHP Syntax Check
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.1'
+          extensions: mysqli, mbstring, zip, gd, curl
+          coverage: none
+
+      - name: Check PHP syntax (all files)
+        run: |
+          echo "🔍 Checking PHP syntax across all files..."
+          ERROR_COUNT=0
+          while IFS= read -r -d '' file; do
+            if ! php -l "$file" > /dev/null 2>&1; then
+              echo "❌ Syntax error in: $file"
+              php -l "$file"
+              ERROR_COUNT=$((ERROR_COUNT + 1))
+            fi
+          done < <(find . -name "*.php" -not -path "./menus/vendor/*" -print0)
+
+          if [ "$ERROR_COUNT" -gt 0 ]; then
+            echo ""
+            echo "❌ Found $ERROR_COUNT file(s) with syntax errors."
+            exit 1
+          else
+            echo "✅ All PHP files passed syntax check."
+          fi
+
+  # ─────────────────────────────────────────
+  # Job 2: Composer Dependency Check
+  # ─────────────────────────────────────────
+  composer-check:
+    name: Composer Dependency Check
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.1'
+          extensions: mysqli, mbstring, zip, gd, curl
+          tools: composer:v2
+          coverage: none
+
+      - name: Cache Composer packages
+        uses: actions/cache@v4
+        with:
+          path: menus/vendor
+          key: ${{ runner.os }}-composer-${{ hashFiles('menus/composer.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-composer-
+
+      - name: Install Composer dependencies
+        working-directory: menus
+        run: |
+          echo "📦 Installing Composer dependencies..."
+          composer install --no-dev --no-interaction --prefer-dist --optimize-autoloader
+          echo "✅ Composer install succeeded."
+
+      - name: Validate composer.json
+        working-directory: menus
+        run: |
+          echo "🔍 Validating composer.json..."
+          composer validate --strict
+          echo "✅ composer.json is valid."

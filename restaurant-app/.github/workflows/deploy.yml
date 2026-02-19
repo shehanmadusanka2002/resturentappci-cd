@@ -1,0 +1,106 @@
+name: CD — Deploy to AWS EC2
+
+on:
+  push:
+    branches:
+      - main
+      - master
+
+jobs:
+  # ─────────────────────────────────────────
+  # Gate: Re-run CI before deploying
+  # ─────────────────────────────────────────
+  ci-gate:
+    name: PHP Syntax Check (Gate)
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.1'
+          extensions: mysqli, mbstring, zip, gd, curl
+          coverage: none
+
+      - name: Check PHP syntax (all files)
+        run: |
+          echo "🔍 Checking PHP syntax before deploy..."
+          ERROR_COUNT=0
+          while IFS= read -r -d '' file; do
+            if ! php -l "$file" > /dev/null 2>&1; then
+              echo "❌ Syntax error in: $file"
+              php -l "$file"
+              ERROR_COUNT=$((ERROR_COUNT + 1))
+            fi
+          done < <(find . -name "*.php" -not -path "./menus/vendor/*" -print0)
+
+          if [ "$ERROR_COUNT" -gt 0 ]; then
+            echo "❌ Found $ERROR_COUNT file(s) with syntax errors. Aborting deploy."
+            exit 1
+          else
+            echo "✅ PHP syntax check passed. Proceeding to deploy."
+          fi
+
+  # ─────────────────────────────────────────
+  # Job: Deploy to AWS EC2 via SSH
+  # ─────────────────────────────────────────
+  deploy:
+    name: Deploy to AWS EC2
+    runs-on: ubuntu-22.04
+    needs: ci-gate   # Only deploy if CI gate passes
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy to AWS EC2 via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USERNAME }}
+          key: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
+          port: 22
+          script: |
+            set -e
+            echo "🚀 Starting deployment on AWS EC2..."
+
+            # ── Pull latest code ────────────────────────────────────
+            cd ${{ secrets.EC2_DEPLOY_PATH }}
+            git fetch origin main
+            git reset --hard origin/main
+            echo "✅ Code updated."
+
+            # ── Write .env file from secrets ────────────────────────
+            cat > ${{ secrets.EC2_DEPLOY_PATH }}/menus/.env << 'ENVEOF'
+            HOST=${{ secrets.DB_HOST }}
+            USERNAME=${{ secrets.DB_USERNAME }}
+            PASSWORD=${{ secrets.DB_PASSWORD }}
+            DB=${{ secrets.DB_NAME }}
+            STRIPE_SECRET_KEY=${{ secrets.STRIPE_SECRET_KEY }}
+            ENVEOF
+            chmod 600 ${{ secrets.EC2_DEPLOY_PATH }}/menus/.env
+            echo "✅ .env file written."
+
+            # ── Install Composer dependencies ───────────────────────
+            cd ${{ secrets.EC2_DEPLOY_PATH }}/menus
+            composer install --no-dev --no-interaction --prefer-dist --optimize-autoloader
+            echo "✅ Composer dependencies installed."
+
+            # ── Set correct file permissions ────────────────────────
+            sudo chown -R www-data:www-data ${{ secrets.EC2_DEPLOY_PATH }}
+            sudo chmod -R 755 ${{ secrets.EC2_DEPLOY_PATH }}
+            sudo chmod -R 775 ${{ secrets.EC2_DEPLOY_PATH }}/qrcodes
+            sudo chmod -R 775 ${{ secrets.EC2_DEPLOY_PATH }}/menus/qrcodes
+            sudo chmod 600 ${{ secrets.EC2_DEPLOY_PATH }}/menus/.env
+            echo "✅ Permissions set."
+
+            # ── Reload Apache ───────────────────────────────────────
+            sudo systemctl reload apache2
+            echo "✅ Apache reloaded."
+
+            echo ""
+            echo "🎉 Deployment complete at $(date)"
+            echo "🌐 Live at: http://${{ secrets.EC2_HOST }}"

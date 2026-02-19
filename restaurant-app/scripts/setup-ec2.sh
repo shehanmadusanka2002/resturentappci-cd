@@ -11,8 +11,9 @@
 set -e  # Exit on any error
 
 # ── CONFIGURATION — Edit these before running ─────────────────────────────────
-REPO_URL="https://github.com/Knoweb/restaurant-app.git"
-DEPLOY_PATH="/var/www/html/restaurant-app"
+REPO_URL="https://github.com/shehanmadusanka2002/resturentappci-cd.git"
+CLONE_PATH="/var/www/html/restaurant-app-repo"   # Where the repo is cloned
+DEPLOY_PATH="/var/www/html/restaurant-app"        # Where the actual app lives
 DOMAIN=""                              # Set to your domain, or leave blank for IP-only
 DB_NAME="restaurant_db"
 DB_USER="stayease_user"
@@ -75,13 +76,24 @@ echo "   ⚠️  DB Password (SAVE THIS!): ${DB_PASS}"
 # ── Step 6: Install Composer ──────────────────────────────────────────────────
 echo "🎼 [6/10] Installing Composer..."
 curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer
+# Allow Composer to run as root (needed for automated server setup)
+export COMPOSER_ALLOW_SUPERUSER=1
 echo "✅ Composer installed: $(composer --version)"
 
 # ── Step 7: Clone Repository ──────────────────────────────────────────────────
 echo "📥 [7/10] Cloning repository..."
 mkdir -p /var/www/html
-git clone "${REPO_URL}" "${DEPLOY_PATH}"
-echo "✅ Repository cloned to ${DEPLOY_PATH}."
+git clone "${REPO_URL}" "${CLONE_PATH}"
+
+# The repo contains 'restaurant-app/' as a subfolder — symlink it to DEPLOY_PATH
+if [ -d "${CLONE_PATH}/restaurant-app" ]; then
+    ln -sfn "${CLONE_PATH}/restaurant-app" "${DEPLOY_PATH}"
+    echo "✅ Repository cloned. App linked at ${DEPLOY_PATH}"
+else
+    # Fallback: app is at repo root
+    ln -sfn "${CLONE_PATH}" "${DEPLOY_PATH}"
+    echo "✅ Repository cloned at ${DEPLOY_PATH}"
+fi
 
 # ── Step 8: Install App Dependencies ─────────────────────────────────────────
 echo "📦 [8/10] Installing Composer dependencies..."

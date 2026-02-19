@@ -68,9 +68,10 @@ jobs:
             echo "🚀 Starting deployment on AWS EC2..."
 
             # ── Pull latest code ────────────────────────────────────
-            cd ${{ secrets.EC2_DEPLOY_PATH }}
-            git fetch origin main
-            git reset --hard origin/main
+            # Repo root is at /var/www/html/restaurant-app-repo
+            # EC2_DEPLOY_PATH is symlinked to restaurant-app-repo/restaurant-app
+            git -C /var/www/html/restaurant-app-repo fetch origin main
+            git -C /var/www/html/restaurant-app-repo reset --hard origin/main
             echo "✅ Code updated."
 
             # ── Write .env file from secrets ────────────────────────
@@ -86,7 +87,7 @@ jobs:
 
             # ── Install Composer dependencies ───────────────────────
             cd ${{ secrets.EC2_DEPLOY_PATH }}/menus
-            composer install --no-dev --no-interaction --prefer-dist --optimize-autoloader
+            COMPOSER_ALLOW_SUPERUSER=1 composer install --no-dev --no-interaction --prefer-dist --optimize-autoloader
             echo "✅ Composer dependencies installed."
 
             # ── Set correct file permissions ────────────────────────
